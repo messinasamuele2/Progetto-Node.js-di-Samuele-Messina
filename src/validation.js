@@ -1,6 +1,12 @@
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)?$/;
 const MAX_PAGE_SIZE = 100;
+const MAX_RELATION_IDS = 1000;
+
+function rejectUnknownFields(body, allowedFields) {
+  const unknown = Object.keys(body).find((field) => !allowedFields.includes(field));
+  if (unknown) throw new ValidationError(`campo non consentito: ${unknown}`);
+}
 
 function requiredObject(value, field = 'body') {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -18,7 +24,7 @@ function requiredString(value, field, maxLength = 255) {
 
 function positiveInteger(value, field) {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || (typeof value === 'string' && !/^\d+$/.test(value))) {
     throw new ValidationError(`${field} deve essere un intero positivo`);
   }
   return parsed;
@@ -30,12 +36,14 @@ function idFromParams(params) {
 
 function validateProduct(body, partial = false) {
   requiredObject(body);
+  rejectUnknownFields(body, ['name']);
   if (!partial || body.name !== undefined) return { name: requiredString(body.name, 'name', 150) };
   throw new ValidationError('specificare almeno un campo da aggiornare');
 }
 
 function validateUser(body, partial = false) {
   requiredObject(body);
+  rejectUnknownFields(body, ['firstName', 'lastName', 'email']);
   const result = {};
   if (!partial || body.firstName !== undefined) result.firstName = requiredString(body.firstName, 'firstName', 80);
   if (!partial || body.lastName !== undefined) result.lastName = requiredString(body.lastName, 'lastName', 80);
@@ -48,7 +56,9 @@ function validateUser(body, partial = false) {
 }
 
 function validateRelationIds(value, field) {
-  if (!Array.isArray(value) || value.length === 0) throw new ValidationError(`${field} deve contenere almeno un id`);
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_RELATION_IDS) {
+    throw new ValidationError(`${field} deve contenere da 1 a ${MAX_RELATION_IDS} id`);
+  }
   const ids = value.map((item) => positiveInteger(item, `${field}[]`));
   if (new Set(ids).size !== ids.length) throw new ValidationError(`${field} non può contenere id duplicati`);
   return ids;
@@ -56,6 +66,7 @@ function validateRelationIds(value, field) {
 
 function validateOrder(body) {
   requiredObject(body);
+  rejectUnknownFields(body, ['productIds', 'userIds']);
   return {
     productIds: validateRelationIds(body.productIds, 'productIds'),
     userIds: validateRelationIds(body.userIds, 'userIds')
@@ -63,13 +74,16 @@ function validateOrder(body) {
 }
 
 function positiveQueryInteger(value, field) {
-  if (Array.isArray(value) || value === '') throw new ValidationError(`${field} non valido`);
+  if (Array.isArray(value) || value === '' || (typeof value === 'string' && !/^\d+$/.test(value))) {
+    throw new ValidationError(`${field} non valido`);
+  }
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) throw new ValidationError(`${field} deve essere un intero non negativo`);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new ValidationError(`${field} deve essere un intero non negativo`);
   return parsed;
 }
 
-function validateListQuery(query = {}) {
+function validateListQuery(query = {}, additionalFields = []) {
+  rejectUnknownFields(query, ['limit', 'offset', ...additionalFields]);
   const limit = query.limit === undefined ? 100 : positiveQueryInteger(query.limit, 'limit');
   const offset = query.offset === undefined ? 0 : positiveQueryInteger(query.offset, 'offset');
   if (limit > MAX_PAGE_SIZE) throw new ValidationError(`limit non può superare ${MAX_PAGE_SIZE}`);
@@ -84,7 +98,7 @@ function validateDateFilter(value, field) {
 }
 
 function validateOrderQuery(query = {}) {
-  const pagination = validateListQuery(query);
+  const pagination = validateListQuery(query, ['createdFrom', 'createdTo', 'productId']);
   const result = { ...pagination };
   if (query.createdFrom !== undefined) result.createdFrom = validateDateFilter(query.createdFrom, 'createdFrom');
   if (query.createdTo !== undefined) result.createdTo = validateDateFilter(query.createdTo, 'createdTo');

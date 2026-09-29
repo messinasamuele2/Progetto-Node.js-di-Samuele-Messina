@@ -8,21 +8,35 @@ function requiredEnv(name) {
   return value;
 }
 
+function productionSecret(name) {
+  const value = requiredEnv(name);
+  if (value.length < 32) throw new Error(`${name} deve contenere almeno 32 caratteri in produzione`);
+  return value;
+}
+
 function positiveEnv(name, fallback) {
   const value = Number(process.env[name] || fallback);
   if (!Number.isInteger(value) || value <= 0) throw new Error(`${name} deve essere un intero positivo`);
   return value;
 }
 
+const apiKey = process.env.NODE_ENV === 'production' ? productionSecret('API_KEY') : process.env.API_KEY;
 const repository = new MysqlRepository({
   host: requiredEnv('DB_HOST'),
   port: positiveEnv('DB_PORT', 3306),
   user: requiredEnv('DB_USER'),
   password: requiredEnv('DB_PASSWORD'),
   database: requiredEnv('DB_NAME'),
-  connectionLimit: positiveEnv('DB_CONNECTION_LIMIT', 10)
+  connectionLimit: positiveEnv('DB_CONNECTION_LIMIT', 10),
+  connectTimeout: positiveEnv('DB_CONNECT_TIMEOUT', 10_000)
 });
-const app = createApp(repository);
+const app = createApp(repository, {
+  apiKey,
+  rateLimit: {
+    windowMs: positiveEnv('RATE_LIMIT_WINDOW_MS', 60_000),
+    max: positiveEnv('RATE_LIMIT_MAX', 120)
+  }
+});
 const port = positiveEnv('PORT', 3000);
 const server = app.listen(port, () => console.log(JSON.stringify({ event: 'server_started', service: 'pof-gas-api', port })));
 server.requestTimeout = 30_000;

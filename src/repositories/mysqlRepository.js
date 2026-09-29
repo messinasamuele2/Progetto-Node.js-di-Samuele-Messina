@@ -18,7 +18,14 @@ function placeholders(values) { return values.map(() => '?').join(', '); }
 
 class MysqlRepository {
   constructor(config) {
-    this.pool = mysql.createPool({ ...config, connectionLimit: config.connectionLimit || 10, waitForConnections: true, multipleStatements: false });
+    this.pool = mysql.createPool({
+      ...config,
+      charset: 'utf8mb4',
+      connectionLimit: config.connectionLimit || 10,
+      waitForConnections: true,
+      queueLimit: 100,
+      multipleStatements: false
+    });
   }
 
   async list(resource, { limit = 100, offset = 0 } = {}) {

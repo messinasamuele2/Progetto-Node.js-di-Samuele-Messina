@@ -1,3 +1,4 @@
+const crypto = require('node:crypto');
 const express = require('express');
 const {
   idFromParams,
@@ -9,6 +10,38 @@ const {
   validateUser,
   ValidationError
 } = require('./validation');
+
+function createRateLimiter({ windowMs = 60_000, max = 120 } = {}) {
+  const clients = new Map();
+  return (req, res, next) => {
+    const now = Date.now();
+    const key = req.ip;
+    const current = clients.get(key);
+    const entry = !current || current.resetAt <= now ? { count: 0, resetAt: now + windowMs } : current;
+    entry.count += 1;
+    clients.set(key, entry);
+    if (clients.size > 10_000) {
+      for (const [client, value] of clients) if (value.resetAt <= now) clients.delete(client);
+    }
+    res.setHeader('RateLimit-Limit', max);
+    res.setHeader('RateLimit-Remaining', Math.max(0, max - entry.count));
+    res.setHeader('RateLimit-Reset', Math.ceil((entry.resetAt - now) / 1000));
+    if (entry.count > max) return res.status(429).json({ error: 'Troppe richieste' });
+    next();
+  };
+}
+
+function apiKeyMiddleware(apiKey) {
+  if (!apiKey) return (_req, _res, next) => next();
+  return (req, res, next) => {
+    const supplied = Buffer.from(req.get('x-api-key') || '');
+    const expected = Buffer.from(apiKey);
+    if (supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) {
+      return res.status(401).json({ error: 'Autenticazione richiesta' });
+    }
+    next();
+  };
+}
 
 function createCrudRouter(repository, resource, validate) {
   const router = express.Router();
@@ -43,17 +76,22 @@ function createCrudRouter(repository, resource, validate) {
   return router;
 }
 
-function createApp(repository) {
+function createApp(repository, options = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+    res.setHeader('Cache-Control', 'no-store');
     next();
   });
+  app.use(createRateLimiter(options.rateLimit));
   app.use(express.json({ limit: '100kb' }));
 
   app.get('/health', (req, res) => res.json({ status: 'ok', service: 'pof-gas-api' }));
+  app.use(apiKeyMiddleware(options.apiKey));
   app.use('/api/products', createCrudRouter(repository, 'products', validateProduct));
   app.use('/api/users', createCrudRouter(repository, 'users', validateUser));
 

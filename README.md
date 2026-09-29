@@ -38,7 +38,7 @@ Ordine: `{ "productIds": [1, 2], "userIds": [3, 4] }`
 Gli ordini supportano i filtri `createdFrom`, `createdTo` e `productId`, ad esempio:
 `GET /api/orders?createdFrom=2026-01-01&createdTo=2026-12-31&productId=2`.
 
-Le liste supportano `limit` e `offset`; `limit` ha un massimo di 100 e il valore predefinito è 100.
+Le liste supportano `limit` e `offset`; `limit` ha un massimo di 100 e il valore predefinito è 100. I campi non documentati sono rifiutati e le relazioni di un ordine sono limitate a 1000 ID.
 
 ## Test
 
@@ -51,9 +51,11 @@ Le liste supportano `limit` e `offset`; `limit` ha un massimo di 100 e il valore
 - Gli input sono validati prima di raggiungere il repository.
 - Gli ordini sono salvati in transazione per mantenere consistenti le relazioni.
 - Le liste sono paginate e le query per ID ordine non caricano l’intera tabella in memoria.
+- Le richieste JSON sono limitate a 100 KB, con rate limiting configurabile e header HTTP di sicurezza.
+- Se `API_KEY` è valorizzata, ogni endpoint `/api` richiede l’header `X-API-Key`; il confronto è constant-time.
 - Le credenziali in `.env` sono esclusivamente locali: non committare mai secret reali e ruotare immediatamente password eventualmente esposte.
 - I codici HTTP principali sono `201 Created`, `200 OK`, `204 No Content`, `404 Not Found`, `409 Conflict` e `422 Unprocessable Entity`.
 
 ## Prerequisiti per la produzione
 
-Questa API non implementa autenticazione/autorizzazione, rate limiting o audit log. Deve quindi essere pubblicata solo dietro un gateway aziendale che fornisca questi controlli, oppure tali capacità devono essere aggiunte prima dell’esposizione su Internet.
+L’autenticazione API-key e il rate limiting sono disponibili tramite `.env`; in `NODE_ENV=production` `API_KEY` è obbligatoria e deve avere almeno 32 caratteri. Non sostituiscono un gateway aziendale, TLS, rotazione delle chiavi e audit log. Pubblicare il servizio solo su HTTPS.

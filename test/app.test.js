@@ -104,3 +104,24 @@ test('rifiuta PATCH vuoti e JSON malformato senza arrivare al repository', async
   assert.equal(malformed.status, 400);
   assert.equal(updateSpy.called, false);
 });
+
+test('rifiuta campi sconosciuti e numeri non sicuri', async () => {
+  const repository = new FakeRepository();
+  const createSpy = sinon.spy(repository, 'create');
+  const app = createApp(repository);
+
+  const unknown = await request(app).post('/api/products').send({ name: 'Pasta', isAdmin: true });
+  const unsafeId = await request(app).get('/api/products/9007199254740992');
+
+  assert.equal(unknown.status, 422);
+  assert.equal(unsafeId.status, 422);
+  assert.equal(createSpy.called, false);
+});
+
+test('protegge le API con API key e limita le richieste', async () => {
+  const app = createApp(new FakeRepository(), { apiKey: 'test-key', rateLimit: { max: 2, windowMs: 60_000 } });
+
+  assert.equal((await request(app).get('/api/products')).status, 401);
+  assert.equal((await request(app).get('/api/products').set('x-api-key', 'test-key')).status, 200);
+  assert.equal((await request(app).get('/api/products').set('x-api-key', 'test-key')).status, 429);
+});
